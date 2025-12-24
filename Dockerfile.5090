@@ -2,9 +2,7 @@
 # Stage 1: Builder - Clone ComfyUI and install all Python packages (CUDA 12.8)
 # ============================================================================
 FROM ubuntu:22.04 AS builder
-
 ENV DEBIAN_FRONTEND=noninteractive
-
 # Install minimal dependencies needed for building
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -28,35 +26,28 @@ RUN apt-get update && \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
     && rm cuda-keyring_1.1-1_all.deb
-
 # Install pip for Python 3.12 and upgrade it
 RUN curl -sS https://bootstrap.pypa.io/get-pip.py -o get-pip.py && \
     python3.12 get-pip.py && \
     python3.12 -m pip install --upgrade pip && \
     rm get-pip.py
-
 # Set CUDA environment for building
 ENV PATH=/usr/local/cuda/bin:${PATH}
 ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64
-
 # Clone ComfyUI to get requirements
 WORKDIR /tmp/build
 RUN git clone https://github.com/comfyanonymous/ComfyUI.git
-
 # Clone custom nodes to get their requirements
 WORKDIR /tmp/build/ComfyUI/custom_nodes
 RUN git clone https://github.com/ltdrdata/ComfyUI-Manager.git && \
     git clone https://github.com/kijai/ComfyUI-KJNodes && \
     git clone https://github.com/MoonGoblinDev/Civicomfy
-
 # Install PyTorch (stable CUDA 12.8 build) and all ComfyUI dependencies
 RUN python3.12 -m pip install --no-cache-dir \
     torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
-
 WORKDIR /tmp/build/ComfyUI
 RUN python3.12 -m pip install --no-cache-dir -r requirements.txt && \
     python3.12 -m pip install --no-cache-dir GitPython opencv-python
-
 # Install custom node dependencies
 WORKDIR /tmp/build/ComfyUI/custom_nodes
 RUN for node_dir in */; do \
@@ -65,17 +56,14 @@ RUN for node_dir in */; do \
             python3.12 -m pip install --no-cache-dir -r "$node_dir/requirements.txt" || true; \
         fi; \
     done
-
 # ============================================================================
 # Stage 2: Runtime - Clean image with pre-installed packages
 # ============================================================================
 FROM ubuntu:22.04
-
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 ENV IMAGEIO_FFMPEG_EXE=/usr/bin/ffmpeg
 ENV FILEBROWSER_CONFIG=/workspace/runpod-slim/.filebrowser.json
-
 # Update and install runtime dependencies, CUDA 12.8, and common tools
 RUN apt-get update && \
     apt-get upgrade -y && \
@@ -115,43 +103,93 @@ RUN apt-get update && \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
     && rm cuda-keyring_1.1-1_all.deb
-
 # Copy Python packages and pip executables from builder stage
 COPY --from=builder /usr/local/lib/python3.12 /usr/local/lib/python3.12
 COPY --from=builder /usr/local/bin /usr/local/bin
-
 # Remove uv to force ComfyUI-Manager to use pip (uv doesn't respect --system-site-packages properly)
 RUN pip uninstall -y uv 2>/dev/null || true && \
     rm -f /usr/local/bin/uv /usr/local/bin/uvx
-
 # Install FileBrowser
 RUN curl -fsSL https://raw.githubusercontent.com/filebrowser/get/master/get.sh | bash
-
 # Set CUDA environment variables
 ENV PATH=/usr/local/cuda/bin:${PATH}
 ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64
-
 # Install Jupyter with Python kernel
 RUN pip install jupyter
-
 # Configure SSH for root login
 RUN sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config && \
     sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config && \
     mkdir -p /run/sshd
-
 # Create workspace directory
 RUN mkdir -p /workspace/runpod-slim
 WORKDIR /workspace/runpod-slim
 
+# Clone ComfyUI fresh
+RUN git clone https://github.com/comfyanonymous/ComfyUI.git /workspace/runpod-slim/ComfyUI && \
+    cd /workspace/runpod-slim/ComfyUI && \
+    python3.12 -m pip install --no-cache-dir -r requirements.txt
+
+# Custom nodes for Z-Image-Turbo workflow
+WORKDIR /workspace/runpod-slim/ComfyUI/custom_nodes
+RUN git clone https://github.com/rgthree/rgthree-comfy.git && \
+    cd rgthree-comfy && python3.12 -m pip install --no-cache-dir -r requirements.txt 2>/dev/null || true && cd .. && \
+    git clone https://github.com/ltdrdata/ComfyUI-Impact-Pack.git && \
+    cd ComfyUI-Impact-Pack && python3.12 -m pip install --no-cache-dir -r requirements.txt 2>/dev/null || true && cd .. && \
+    git clone https://github.com/yolain/ComfyUI-Easy-Use.git && \
+    cd ComfyUI-Easy-Use && python3.12 -m pip install --no-cache-dir -r requirements.txt 2>/dev/null || true && cd .. && \
+    git clone https://github.com/ssitu/ComfyUI_UltimateSDUpscale.git && \
+    cd ComfyUI_UltimateSDUpscale && python3.12 -m pip install --no-cache-dir -r requirements.txt 2>/dev/null || true && cd .. && \
+    git clone https://github.com/sipherxyz/comfyui-art-venture.git && \
+    cd comfyui-art-venture && python3.12 -m pip install --no-cache-dir -r requirements.txt 2>/dev/null || true && cd .. && \
+    git clone https://github.com/ltdrdata/ComfyUI-Impact-Subpack.git && \
+    cd ComfyUI-Impact-Subpack && python3.12 -m pip install --no-cache-dir -r requirements.txt 2>/dev/null || true && cd .. && \
+    git clone https://github.com/moonwhaler/comfyui-moonpack.git && \
+    cd comfyui-moonpack && python3.12 -m pip install --no-cache-dir -r requirements.txt 2>/dev/null || true && cd .. && \
+    git clone https://github.com/gseth/ControlAltAI-Nodes.git && \
+    cd ControlAltAI-Nodes && python3.12 -m pip install --no-cache-dir -r requirements.txt 2>/dev/null || true && cd .. && \
+    git clone https://github.com/vrgamegirl19/comfyui-vrgamedevgirl.git && \
+    cd comfyui-vrgamedevgirl && python3.12 -m pip install --no-cache-dir -r requirements.txt 2>/dev/null || true && cd .. && \
+    git clone https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler.git && \
+    cd ComfyUI-SeedVR2_VideoUpscaler && python3.12 -m pip install --no-cache-dir -r requirements.txt 2>/dev/null || true && cd .. && \
+    git clone https://github.com/robertvoy/ComfyUI-Flux-Continuum.git && \
+    cd ComfyUI-Flux-Continuum && python3.12 -m pip install --no-cache-dir -r requirements.txt 2>/dev/null || true && cd .. && \
+    git clone https://github.com/ltdrdata/was-node-suite-comfyui.git && \
+    cd was-node-suite-comfyui && python3.12 -m pip install --no-cache-dir -r requirements.txt 2>/dev/null || true && cd .. && \
+    git clone https://github.com/ChangeTheConstants/SeedVarianceEnhancer.git && \
+    cd SeedVarianceEnhancer && python3.12 -m pip install --no-cache-dir -r requirements.txt 2>/dev/null || true && cd ..
+
+# Back to ComfyUI root
+WORKDIR /workspace/runpod-slim/ComfyUI
+
+# Create model directories
+RUN mkdir -p models/diffusion_models models/text_encoders models/vae models/ultralytics/bbox models/upscale_models models/SEEDVR2 input/workflows
+
+# Core Z-Image-Turbo models
+RUN wget -O models/diffusion_models/z_image_turbo_bf16.safetensors https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/diffusion_models/z_image_turbo_bf16.safetensors && \
+    wget -O models/text_encoders/qwen_3_4b.safetensors https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/text_encoders/qwen_3_4b.safetensors && \
+    wget -O models/vae/ae.safetensors https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/vae/ae.safetensors
+
+# Detailer detectors
+RUN wget -O models/ultralytics/bbox/face_yolov8m.pt https://huggingface.co/Bingsu/adetailer/resolve/main/face_yolov8m.pt && \
+    wget -O models/ultralytics/bbox/Eyeful_v2-Paired.pt https://huggingface.co/Tenofas/ComfyUI/resolve/d79945fb5c16e8aef8a1eb3ba1788d72152c6d96/ultralytics/bbox/Eyeful_v2-Paired.pt && \
+    wget -O models/ultralytics/bbox/hand_yolov8s.pt https://huggingface.co/xingren23/comfyflow-models/resolve/main/ultralytics/bbox/hand_yolov8s.pt
+
+# SeedVR2 FP16 (best realism, non-sharp, for RTX 5090)
+RUN wget -O models/SEEDVR2/seedvr2_ema_7b_fp16.safetensors https://huggingface.co/numz/SeedVR2_comfyUI/resolve/main/seedvr2_ema_7b_fp16.safetensors && \
+    wget -O models/SEEDVR2/ema_vae_fp16.safetensors https://huggingface.co/numz/SeedVR2_comfyUI/resolve/main/ema_vae_fp16.safetensors
+
+# Upscale model (popular choice)
+RUN wget -O models/upscale_models/4x-UltraSharp.pth https://openmodeldb.info/results/download/4x-UltraSharp
+
+# Workflow JSON
+RUN wget -O input/workflows/z-image-turbo-t2i-workflow-detailer-seedvr2.json "https://civitai.com/api/download/models/2174733" --content-disposition --no-check-certificate
+
 # Expose ports
 EXPOSE 8188 22 8888 8080
-
 # Copy and set up start script
 COPY start.5090.sh /start.sh
 RUN chmod +x /start.sh
-
 # Set Python 3.12 as default
 RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1 && \
     update-alternatives --set python3 /usr/bin/python3.12
-
 ENTRYPOINT ["/start.sh"]
