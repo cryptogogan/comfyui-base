@@ -93,8 +93,9 @@ Expose settings are declared in Dockerfiles.
 
 Recognized at runtime by the start scripts:
 
-- `PUBLIC_KEY` – If provided, enables key-based SSH for root; otherwise a random password is generated and printed.
-- `JUPYTER_PASSWORD` – If set, used as the JupyterLab token (no browser; root at `/workspace`).
+- `PUBLIC_KEY` – If provided, enables key-based SSH for root and disables SSH password authentication; otherwise a random root password is generated and printed.
+- `JUPYTER_PASSWORD` – If set, used as the JupyterLab token. If unset, a random token is generated and printed to the logs (Jupyter is never started without a token, since it exposes a root terminal).
+- `FB_PASSWORD` – If set, used as the FileBrowser `admin` password on first init. If unset, a random password is generated and printed to the logs.
 - GPU/CUDA-related environment variables are propagated (`CUDA*`, `LD_LIBRARY_PATH`, `PYTHONPATH`, and `RUNPOD_*` vars if present in the environment).
 
 ## Dependency Management
