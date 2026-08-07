@@ -3,37 +3,16 @@
 # ============================================================================
 FROM ubuntu:22.04 AS builder
 
+ARG CUDA_APT_PACKAGE=cuda-minimal-build-12-4
+ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cu124
+
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install minimal dependencies needed for building
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-    software-properties-common \
-    gpg-agent \
-    git \
-    wget \
-    curl \
-    ca-certificates \
-    && add-apt-repository ppa:deadsnakes/ppa && \
-    apt-get update && \
-    apt-get install -y --no-install-recommends \
-    python3.12 \
-    python3.12-venv \
-    python3.12-dev \
-    build-essential \
-    && wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.1-1_all.deb \
-    && dpkg -i cuda-keyring_1.1-1_all.deb \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends cuda-minimal-build-12-4 \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/* \
-    && rm cuda-keyring_1.1-1_all.deb
+COPY scripts /opt/comfyui-base/scripts
+COPY manifests /opt/comfyui-base/manifests
 
-# Install pip for Python 3.12 and upgrade it
-RUN curl -sS https://bootstrap.pypa.io/get-pip.py -o get-pip.py && \
-    python3.12 get-pip.py && \
-    python3.12 -m pip install --upgrade pip && \
-    rm get-pip.py
+# Install system dependencies (Python 3.12, CUDA toolchain, pip)
+RUN /opt/comfyui-base/scripts/install-build-deps.sh "$CUDA_APT_PACKAGE"
 
 # Set CUDA environment for building
 ENV PATH=/usr/local/cuda/bin:${PATH}
@@ -43,78 +22,35 @@ ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64
 WORKDIR /tmp/build
 RUN git clone https://github.com/comfyanonymous/ComfyUI.git
 
-# Clone custom nodes to get their requirements
-WORKDIR /tmp/build/ComfyUI/custom_nodes
-RUN git clone https://github.com/ltdrdata/ComfyUI-Manager.git && \
-    git clone https://github.com/kijai/ComfyUI-KJNodes && \
-    git clone https://github.com/MoonGoblinDev/Civicomfy
-
 # Install PyTorch and all ComfyUI dependencies
 RUN python3.12 -m pip install --no-cache-dir \
-    torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
+    torch torchvision torchaudio --index-url "$TORCH_INDEX_URL"
 
 WORKDIR /tmp/build/ComfyUI
 RUN python3.12 -m pip install --no-cache-dir -r requirements.txt && \
     python3.12 -m pip install --no-cache-dir GitPython opencv-python
 
-# Install custom node dependencies
-WORKDIR /tmp/build/ComfyUI/custom_nodes
-RUN for node_dir in */; do \
-        if [ -f "$node_dir/requirements.txt" ]; then \
-            echo "Installing requirements for $node_dir"; \
-            python3.12 -m pip install --no-cache-dir -r "$node_dir/requirements.txt" || true; \
-        fi; \
-    done
+# Clone custom nodes and install their requirements
+RUN REQUIREMENTS_ONLY=1 IGNORE_ERRORS=1 /opt/comfyui-base/scripts/install-custom-nodes.sh \
+    /tmp/build/ComfyUI/custom_nodes /opt/comfyui-base/manifests/custom-nodes-base.txt
 
 # ============================================================================
 # Stage 2: Runtime - Clean image with pre-installed packages
 # ============================================================================
-FROM ubuntu:22.04
+FROM ubuntu:22.04 AS runtime
+
+ARG CUDA_APT_PACKAGE=cuda-minimal-build-12-4
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 ENV IMAGEIO_FFMPEG_EXE=/usr/bin/ffmpeg
 ENV FILEBROWSER_CONFIG=/workspace/runpod-slim/.filebrowser.json
 
-# Update and install runtime dependencies, CUDA, and common tools
-RUN apt-get update && \
-    apt-get upgrade -y && \
-    apt-get install -y --no-install-recommends \
-    software-properties-common \
-    gpg-agent \
-    && add-apt-repository ppa:deadsnakes/ppa && \
-    add-apt-repository ppa:cybermax-dexter/ffmpeg-nvenc && \
-    apt-get update && \
-    apt-get install -y --no-install-recommends \
-    git \
-    python3.12 \
-    python3.12-venv \
-    python3.12-dev \
-    build-essential \
-    wget \
-    gnupg \
-    xz-utils \
-    openssh-client \
-    openssh-server \
-    nano \
-    curl \
-    htop \
-    tmux \
-    ca-certificates \
-    less \
-    net-tools \
-    iputils-ping \
-    procps \
-    golang \
-    make \
-    && wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.1-1_all.deb \
-    && dpkg -i cuda-keyring_1.1-1_all.deb \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends cuda-minimal-build-12-4 \
-    && apt-get install -y --no-install-recommends ffmpeg \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/* \
-    && rm cuda-keyring_1.1-1_all.deb
+COPY scripts /opt/comfyui-base/scripts
+COPY manifests /opt/comfyui-base/manifests
+
+# Install runtime dependencies, CUDA, common tools, FileBrowser and SSH config
+RUN /opt/comfyui-base/scripts/install-runtime-deps.sh "$CUDA_APT_PACKAGE"
 
 # Copy Python packages and pip executables from builder stage
 COPY --from=builder /usr/local/lib/python3.12 /usr/local/lib/python3.12
@@ -124,20 +60,12 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 RUN pip uninstall -y uv 2>/dev/null || true && \
     rm -f /usr/local/bin/uv /usr/local/bin/uvx
 
-# Install FileBrowser
-RUN curl -fsSL https://raw.githubusercontent.com/filebrowser/get/master/get.sh | bash
-
 # Set CUDA environment variables
 ENV PATH=/usr/local/cuda/bin:${PATH}
 ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64
 
 # Install Jupyter with Python kernel
 RUN pip install jupyter
-
-# Configure SSH for root login
-RUN sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config && \
-    sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config && \
-    mkdir -p /run/sshd
 
 # Create workspace directory
 RUN mkdir -p /workspace/runpod-slim
@@ -150,8 +78,26 @@ EXPOSE 8188 22 8888 8080
 COPY start.sh /start.sh
 RUN chmod +x /start.sh
 
-# Set Python 3.12 as default
-RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1 && \
-    update-alternatives --set python3 /usr/bin/python3.12
-
 ENTRYPOINT ["/start.sh"]
+
+# ============================================================================
+# Stage 3: RTX 5090 - Runtime plus a baked-in Z-Image-Turbo workflow
+# ============================================================================
+FROM runtime AS rtx5090
+
+# The CUDA 12.8 build gets its own venv so it never reuses the cu124 one
+ENV COMFYUI_VENV_DIR=/workspace/runpod-slim/ComfyUI/.venv-cu128
+
+# Clone ComfyUI fresh
+RUN git clone https://github.com/comfyanonymous/ComfyUI.git /workspace/runpod-slim/ComfyUI && \
+    cd /workspace/runpod-slim/ComfyUI && \
+    python3.12 -m pip install --no-cache-dir -r requirements.txt
+
+# Custom nodes and models for the Z-Image-Turbo workflow
+RUN REQUIREMENTS_ONLY=1 IGNORE_ERRORS=1 /opt/comfyui-base/scripts/install-custom-nodes.sh \
+    /workspace/runpod-slim/ComfyUI/custom_nodes /opt/comfyui-base/manifests/custom-nodes-5090.txt
+
+RUN /opt/comfyui-base/scripts/download-files.sh \
+    /workspace/runpod-slim/ComfyUI /opt/comfyui-base/manifests/models-5090.txt
+
+WORKDIR /workspace/runpod-slim/ComfyUI

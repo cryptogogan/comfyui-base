@@ -1,0 +1,2 @@
+# Custom nodes installed on first start, in addition to the base set
+https://github.com/MadiatorLabs/ComfyUI-RunpodDirect

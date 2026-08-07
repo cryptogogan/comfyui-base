@@ -1,0 +1,14 @@
+# Custom nodes for the Z-Image-Turbo workflow (RTX 5090 image)
+https://github.com/rgthree/rgthree-comfy.git
+https://github.com/ltdrdata/ComfyUI-Impact-Pack.git
+https://github.com/yolain/ComfyUI-Easy-Use.git
+https://github.com/ssitu/ComfyUI_UltimateSDUpscale.git
+https://github.com/sipherxyz/comfyui-art-venture.git
+https://github.com/ltdrdata/ComfyUI-Impact-Subpack.git
+https://github.com/moonwhaler/comfyui-moonpack.git
+https://github.com/gseth/ControlAltAI-Nodes.git
+https://github.com/vrgamegirl19/comfyui-vrgamedevgirl.git
+https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler.git
+https://github.com/robertvoy/ComfyUI-Flux-Continuum.git
+https://github.com/ltdrdata/was-node-suite-comfyui.git
+https://github.com/ChangeTheConstants/SeedVarianceEnhancer.git

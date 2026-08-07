@@ -9,16 +9,16 @@ This document outlines how to work in this repository from a developer point of 
   - Regular image: CUDA 12.4, stable PyTorch via upstream requirements
   - RTX 5090 image: CUDA 12.8, PyTorch Nightly (explicit cu128 wheels)
 - **Python**: 3.12 (set as system default inside the image)
-- **Package manager**: pip + uv (uv used for fast installs; `UV_LINK_MODE=copy`)
+- **Package manager**: pip (uv is removed from the image; it does not respect `--system-site-packages`)
 - **Tools bundled**: FileBrowser (port 8080), JupyterLab (port 8888), OpenSSH server (port 22), FFmpeg (NVENC), common CLI tools
 - **Primary app**: ComfyUI, with pre-installed custom nodes
 
 ## Repository Layout
 
-- `Dockerfile` – Regular image (CUDA 12.4)
-- `Dockerfile.5090` – RTX 5090 image (CUDA 12.8 + PyTorch cu128)
-- `start.sh` – Runtime bootstrap for regular image
-- `start.5090.sh` – Runtime bootstrap for 5090 image
+- `Dockerfile` – Both images: `builder` and `runtime` stages (CUDA 12.4 by default), plus an `rtx5090` stage that extends `runtime` with a baked-in Z-Image-Turbo workflow
+- `start.sh` – Runtime bootstrap for every image variant
+- `scripts/` – Shared build/runtime shell utilities (`lib/` holds sourceable helpers)
+- `manifests/` – Lists of custom node repos and model downloads consumed by `scripts/`
 - `docker-bake.hcl` – Buildx bake targets (`regular`, `dev`, `rtx5090`)
 - `README.md` – User-facing overview
 - `docs/conventions.md` – This document
@@ -42,7 +42,7 @@ Use Docker Buildx Bake with the provided HCL file.
   - Tag: `runpod/comfyui:dev`
   - Output: local docker image (not pushed)
 - `rtx5090` (CUDA 12.8 + latest torch):
-  - Dockerfile: `Dockerfile.5090`
+  - Dockerfile: `Dockerfile`, stage `rtx5090`
   - Tag: `runpod/comfyui:${TAG}-5090`
 
 Example commands:
@@ -61,24 +61,22 @@ docker buildx bake -f docker-bake.hcl rtx5090
 Build args and env:
 
 - `TAG` variable in `docker-bake.hcl` controls the tag suffix (default `slim`).
+- `CUDA_APT_PACKAGE` / `TORCH_INDEX_URL` build args select the CUDA and PyTorch flavor (the `rtx5090` bake target overrides them with cu128).
 - Build uses BuildKit inline cache.
 
 ## Runtime Behavior
 
-Startup is handled by `start.sh` (or `start.5090.sh` for the 5090 image):
+Startup is handled by `start.sh` for every variant:
 
 - Initializes SSH server. If `PUBLIC_KEY` is set, it is added to `~/.ssh/authorized_keys`; otherwise a random root password is generated and printed to logs.
 - Exports selected env vars broadly to `/etc/environment`, PAM, and `~/.ssh/environment` for non-interactive shells.
 - Initializes and starts FileBrowser on port 8080 (root `/workspace`). Default admin user is created on first run.
 - Starts JupyterLab on port 8888, root at `/workspace`. Token set via `JUPYTER_PASSWORD` if provided.
 - Ensures `comfyui_args.txt` exists.
-- Clones ComfyUI and preselected custom nodes on first run, then creates a Python 3.12 venv and installs dependencies using `uv`.
+- Clones ComfyUI and the custom nodes listed in `manifests/custom-nodes-*.txt` on first run, then creates a Python 3.12 venv with `--system-site-packages` and installs custom node dependencies with `pip`.
 - Starts ComfyUI with fixed args `--listen 0.0.0.0 --port 8188` plus any custom args from `comfyui_args.txt`.
 
-Differences in 5090 script:
-
-- Virtualenv path: `.venv-cu128`
-- Masks torch-related lines in ComfyUI `requirements.txt` and installs torch/cu128 wheels explicitly: `torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128`.
+The venv path is `$COMFYUI_VENV_DIR` when set, else `ComfyUI/.venv`. The `rtx5090` stage sets it to `ComfyUI/.venv-cu128` so the cu128 image never reuses the cu124 venv.
 
 ## Ports
 
@@ -103,10 +101,9 @@ Recognized at runtime by the start scripts:
 - Venv location:
   - Regular: `/workspace/runpod-slim/ComfyUI/.venv`
   - 5090: `/workspace/runpod-slim/ComfyUI/.venv-cu128`
-- `uv` is used for dependency installation for speed and reproducibility.
-- Regular image installs ComfyUI `requirements.txt` as-is.
-- 5090 image comments out torch-related requirements and installs CUDA 12.8 torch wheels explicitly.
-- Custom nodes: repos are cloned into `ComfyUI/custom_nodes/`. On first run and subsequent starts, the script attempts to install each node’s `requirements.txt`, run `install.py`, or `setup.py` if present.
+- `pip` is used for dependency installation (`uv` is removed from the image because it ignores `--system-site-packages`).
+- Torch wheels come from `TORCH_INDEX_URL` at image build time; the venv inherits them via `--system-site-packages`.
+- Custom nodes: repos listed in `manifests/custom-nodes-*.txt` are cloned into `ComfyUI/custom_nodes/`. On first run and subsequent starts, `install_custom_node_deps` (see `scripts/lib/custom-nodes.sh`) installs each node’s `requirements.txt` and runs `install.py` / `setup.py` if present.
 
 Preinstalled custom nodes (initial set):
 
@@ -117,13 +114,15 @@ Preinstalled custom nodes (initial set):
 ## Customization Points
 
 - `comfyui_args.txt` – Add one CLI arg per line; comments starting with `#` are ignored. These are appended after fixed args.
-- Add/remove custom nodes by editing the `CUSTOM_NODES` array in the start script(s), or pre-baking them into the image.
-- Additional system packages: modify the respective Dockerfile `apt-get install` lines.
-- Python packages: extend installation blocks in the start script after venv activation. Prefer `uv pip install --no-cache ...`.
+- Add/remove custom nodes by editing the manifests in `manifests/` (`custom-nodes-base.txt` is baked into the image, `custom-nodes-runtime.txt` is cloned on first start, `custom-nodes-5090.txt` is baked into the 5090 stage).
+- Add/remove baked models and workflows by editing `manifests/models-5090.txt` (`<destination> <url> [extra wget args]`).
+- Additional system packages: modify `scripts/install-build-deps.sh` / `scripts/install-runtime-deps.sh`.
+- Python packages: extend installation blocks in the start script after venv activation. Prefer `pip install --no-cache-dir ...`.
 
 ## Dev Conventions
 
-- Keep images lean. Prefer runtime install via `uv` over baking large wheels unless required (e.g., 5090 torch wheels).
+- Keep images lean. Prefer runtime install over baking large wheels unless required (e.g., 5090 torch wheels).
+- Keep build and runtime shell logic in `scripts/` so the image variants stay in sync; the Dockerfile stages should only wire arguments and manifests.
 - Avoid changing ports; they are referenced by external templates (RunPod/UI tooling).
 - Use Python 3.12. Do not downgrade in scripts.
 - When adding new env vars needed by downstream processes, ensure they are exported in `export_env_vars()` the same way as others.

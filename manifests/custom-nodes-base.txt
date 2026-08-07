@@ -1,0 +1,4 @@
+# Custom nodes pre-installed in every image
+https://github.com/ltdrdata/ComfyUI-Manager.git
+https://github.com/kijai/ComfyUI-KJNodes
+https://github.com/MoonGoblinDev/Civicomfy

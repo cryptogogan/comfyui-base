@@ -6,15 +6,27 @@ variable "TAG" {
 target "common" {
   context = "."
   platforms = ["linux/amd64"]
+  dockerfile = "Dockerfile"
+  target = "runtime"
   args = {
     BUILDKIT_INLINE_CACHE = "1"
+  }
+}
+
+# RTX 5090 / Blackwell settings: CUDA 12.8 + matching PyTorch build, plus the
+# baked-in Z-Image-Turbo workflow stage
+target "common-5090" {
+  inherits = ["common"]
+  target = "rtx5090"
+  args = {
+    CUDA_APT_PACKAGE = "cuda-minimal-build-12-8"
+    TORCH_INDEX_URL = "https://download.pytorch.org/whl/cu128"
   }
 }
 
 # Regular ComfyUI image (CUDA 12.4)
 target "regular" {
   inherits = ["common"]
-  dockerfile = "Dockerfile"
   tags = [
     "runpod/comfyui:${TAG}",
     "runpod/comfyui:latest",
@@ -24,7 +36,6 @@ target "regular" {
 # Dev image for local testing
 target "dev" {
   inherits = ["common"]
-  dockerfile = "Dockerfile"
   tags = ["runpod/comfyui:dev"]
   output = ["type=docker"]
 }
@@ -32,23 +43,17 @@ target "dev" {
 # Dev push targets (for CI pushing dev tags, without overriding latest)
 target "devpush" {
   inherits = ["common"]
-  dockerfile = "Dockerfile"
   tags = ["runpod/comfyui:dev"]
 }
 
 target "devpush5090" {
-  inherits = ["common"]
-  dockerfile = "Dockerfile.5090"
+  inherits = ["common-5090"]
   tags = ["runpod/comfyui:dev-5090"]
 }
 
 # RTX 5090 optimized image (CUDA 12.8 + latest PyTorch build)
 target "rtx5090" {
-  inherits = ["common"]
-  dockerfile = "Dockerfile.5090"
-  args = {
-    START_SCRIPT = "start.5090.sh"
-  }
+  inherits = ["common-5090"]
   tags = [
     "runpod/comfyui:${TAG}-5090",
     "runpod/comfyui:latest-5090",

@@ -1,0 +1,21 @@
+# <destination relative to ComfyUI root> <url> [extra wget args]
+
+# Core Z-Image-Turbo models
+models/diffusion_models/z_image_turbo_bf16.safetensors https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/diffusion_models/z_image_turbo_bf16.safetensors
+models/text_encoders/qwen_3_4b.safetensors https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/text_encoders/qwen_3_4b.safetensors
+models/vae/ae.safetensors https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/vae/ae.safetensors
+
+# Detailer detectors
+models/ultralytics/bbox/face_yolov8m.pt https://huggingface.co/Bingsu/adetailer/resolve/main/face_yolov8m.pt
+models/ultralytics/bbox/Eyeful_v2-Paired.pt https://huggingface.co/Tenofas/ComfyUI/resolve/d79945fb5c16e8aef8a1eb3ba1788d72152c6d96/ultralytics/bbox/Eyeful_v2-Paired.pt
+models/ultralytics/bbox/hand_yolov8s.pt https://huggingface.co/xingren23/comfyflow-models/resolve/main/ultralytics/bbox/hand_yolov8s.pt
+
+# SeedVR2 FP16 (best realism, non-sharp, for RTX 5090)
+models/SEEDVR2/seedvr2_ema_7b_fp16.safetensors https://huggingface.co/numz/SeedVR2_comfyUI/resolve/main/seedvr2_ema_7b_fp16.safetensors
+models/SEEDVR2/ema_vae_fp16.safetensors https://huggingface.co/numz/SeedVR2_comfyUI/resolve/main/ema_vae_fp16.safetensors
+
+# Upscale model (popular choice)
+models/upscale_models/4x-UltraSharp.pth https://openmodeldb.info/results/download/4x-UltraSharp
+
+# Workflow JSON
+input/workflows/z-image-turbo-t2i-workflow-detailer-seedvr2.json https://civitai.com/api/download/models/2174733 --content-disposition --no-check-certificate
