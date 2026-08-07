@@ -72,8 +72,23 @@ Startup is handled by `start.sh` (or `start.5090.sh` for the 5090 image):
 - Initializes and starts FileBrowser on port 8080 (root `/workspace`). Default admin user is created on first run.
 - Starts JupyterLab on port 8888, root at `/workspace`. Token set via `JUPYTER_PASSWORD` if provided.
 - Ensures `comfyui_args.txt` exists.
-- Clones ComfyUI and preselected custom nodes on first run, then creates a Python 3.12 venv and installs dependencies using `uv`.
+- Clones ComfyUI and preselected custom nodes on first run, then creates a Python 3.12 venv and installs dependencies with pip.
 - Starts ComfyUI with fixed args `--listen 0.0.0.0 --port 8188` plus any custom args from `comfyui_args.txt`.
+
+### Error Handling
+
+Start scripts run under `set -Eeuo pipefail` with an `ERR` trap that prints the failing command, its exit code, and the source line. Failures are classified:
+
+- **Fatal** (container exits non-zero): ComfyUI itself failing to start or exiting, cloning ComfyUI, venv creation.
+- **Degraded** (startup continues): SSH, FileBrowser, JupyterLab, and per-custom-node dependency installs. Each failure is logged as a `[start][WARN]` and repeated in a summary before ComfyUI starts, so a broken optional node never silently disappears or blocks the UI.
+
+Other behaviors worth knowing:
+
+- Background services are checked shortly after launch; if one died, the last 50 lines of its log are printed to stderr.
+- The script `wait`s on the ComfyUI process instead of tailing its log forever, and exits with ComfyUI's status. A dead ComfyUI therefore stops the container instead of leaving it "healthy".
+- `SIGTERM`/`SIGINT` are forwarded to ComfyUI for a clean shutdown.
+- FileBrowser initialization removes a partially created `filebrowser.db` on failure so init is retried on the next start rather than permanently skipped.
+- Dockerfile custom-node dependency installs remain non-fatal but keep their stderr and record failures in `/custom_node_install_failures.txt`, summarised at the end of the build step.
 
 Differences in 5090 script:
 
@@ -103,7 +118,7 @@ Recognized at runtime by the start scripts:
 - Venv location:
   - Regular: `/workspace/runpod-slim/ComfyUI/.venv`
   - 5090: `/workspace/runpod-slim/ComfyUI/.venv-cu128`
-- `uv` is used for dependency installation for speed and reproducibility.
+- Dependency installs go through the `pip_install` helper, which prefers `pip` (the images remove `uv` because it does not respect `--system-site-packages`) and falls back to `uv` when `pip` is missing.
 - Regular image installs ComfyUI `requirements.txt` as-is.
 - 5090 image comments out torch-related requirements and installs CUDA 12.8 torch wheels explicitly.
 - Custom nodes: repos are cloned into `ComfyUI/custom_nodes/`. On first run and subsequent starts, the script attempts to install each node’s `requirements.txt`, run `install.py`, or `setup.py` if present.
@@ -119,7 +134,7 @@ Preinstalled custom nodes (initial set):
 - `comfyui_args.txt` – Add one CLI arg per line; comments starting with `#` are ignored. These are appended after fixed args.
 - Add/remove custom nodes by editing the `CUSTOM_NODES` array in the start script(s), or pre-baking them into the image.
 - Additional system packages: modify the respective Dockerfile `apt-get install` lines.
-- Python packages: extend installation blocks in the start script after venv activation. Prefer `uv pip install --no-cache ...`.
+- Python packages: extend installation blocks in the start script after venv activation. Use the `pip_install ...` helper so failures are reported consistently.
 
 ## Dev Conventions
 
@@ -128,7 +143,8 @@ Preinstalled custom nodes (initial set):
 - Use Python 3.12. Do not downgrade in scripts.
 - When adding new env vars needed by downstream processes, ensure they are exported in `export_env_vars()` the same way as others.
 - For new custom nodes, ensure idempotent installs: the loop checks for `requirements.txt`, `install.py`, and `setup.py`.
-- Shell scripting: keep `set -e` at top; prefer explicit guards; write idempotent steps safe to re-run.
+- Shell scripting: keep `set -Eeuo pipefail` and the `ERR` trap at the top; prefer explicit guards; write idempotent steps safe to re-run. Use `degrade "..."` for non-fatal failures instead of `|| true`, so they show up in the startup summary.
+- Run `shellcheck start.sh start.5090.sh` before submitting shell changes.
 
 ## Local Development Tips
 

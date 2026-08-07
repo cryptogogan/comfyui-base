@@ -50,12 +50,21 @@ RUN python3.12 -m pip install --no-cache-dir -r requirements.txt && \
     python3.12 -m pip install --no-cache-dir GitPython opencv-python
 # Install custom node dependencies
 WORKDIR /tmp/build/ComfyUI/custom_nodes
+# A failing optional node must not fail the build, but the failure is logged and
+# recorded in /custom_node_install_failures.txt instead of being discarded.
 RUN for node_dir in */; do \
         if [ -f "$node_dir/requirements.txt" ]; then \
             echo "Installing requirements for $node_dir"; \
-            python3.12 -m pip install --no-cache-dir -r "$node_dir/requirements.txt" || true; \
+            python3.12 -m pip install --no-cache-dir -r "$node_dir/requirements.txt" || { \
+                echo "WARNING: failed to install requirements for $node_dir" >&2; \
+                echo "$node_dir" >> /custom_node_install_failures.txt; \
+            }; \
         fi; \
-    done
+    done; \
+    if [ -f /custom_node_install_failures.txt ]; then \
+        echo "WARNING: custom nodes with failed dependency installs:" >&2; \
+        cat /custom_node_install_failures.txt >&2; \
+    fi
 # ============================================================================
 # Stage 2: Runtime - Clean image with pre-installed packages
 # ============================================================================
@@ -131,32 +140,37 @@ RUN git clone https://github.com/comfyanonymous/ComfyUI.git /workspace/runpod-sl
 
 # Custom nodes for Z-Image-Turbo workflow
 WORKDIR /workspace/runpod-slim/ComfyUI/custom_nodes
-RUN git clone https://github.com/rgthree/rgthree-comfy.git && \
-    cd rgthree-comfy && python3.12 -m pip install --no-cache-dir -r requirements.txt 2>/dev/null || true && cd .. && \
-    git clone https://github.com/ltdrdata/ComfyUI-Impact-Pack.git && \
-    cd ComfyUI-Impact-Pack && python3.12 -m pip install --no-cache-dir -r requirements.txt 2>/dev/null || true && cd .. && \
-    git clone https://github.com/yolain/ComfyUI-Easy-Use.git && \
-    cd ComfyUI-Easy-Use && python3.12 -m pip install --no-cache-dir -r requirements.txt 2>/dev/null || true && cd .. && \
-    git clone https://github.com/ssitu/ComfyUI_UltimateSDUpscale.git && \
-    cd ComfyUI_UltimateSDUpscale && python3.12 -m pip install --no-cache-dir -r requirements.txt 2>/dev/null || true && cd .. && \
-    git clone https://github.com/sipherxyz/comfyui-art-venture.git && \
-    cd comfyui-art-venture && python3.12 -m pip install --no-cache-dir -r requirements.txt 2>/dev/null || true && cd .. && \
-    git clone https://github.com/ltdrdata/ComfyUI-Impact-Subpack.git && \
-    cd ComfyUI-Impact-Subpack && python3.12 -m pip install --no-cache-dir -r requirements.txt 2>/dev/null || true && cd .. && \
-    git clone https://github.com/moonwhaler/comfyui-moonpack.git && \
-    cd comfyui-moonpack && python3.12 -m pip install --no-cache-dir -r requirements.txt 2>/dev/null || true && cd .. && \
-    git clone https://github.com/gseth/ControlAltAI-Nodes.git && \
-    cd ControlAltAI-Nodes && python3.12 -m pip install --no-cache-dir -r requirements.txt 2>/dev/null || true && cd .. && \
-    git clone https://github.com/vrgamegirl19/comfyui-vrgamedevgirl.git && \
-    cd comfyui-vrgamedevgirl && python3.12 -m pip install --no-cache-dir -r requirements.txt 2>/dev/null || true && cd .. && \
-    git clone https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler.git && \
-    cd ComfyUI-SeedVR2_VideoUpscaler && python3.12 -m pip install --no-cache-dir -r requirements.txt 2>/dev/null || true && cd .. && \
-    git clone https://github.com/robertvoy/ComfyUI-Flux-Continuum.git && \
-    cd ComfyUI-Flux-Continuum && python3.12 -m pip install --no-cache-dir -r requirements.txt 2>/dev/null || true && cd .. && \
-    git clone https://github.com/ltdrdata/was-node-suite-comfyui.git && \
-    cd was-node-suite-comfyui && python3.12 -m pip install --no-cache-dir -r requirements.txt 2>/dev/null || true && cd .. && \
-    git clone https://github.com/ChangeTheConstants/SeedVarianceEnhancer.git && \
-    cd SeedVarianceEnhancer && python3.12 -m pip install --no-cache-dir -r requirements.txt 2>/dev/null || true && cd ..
+# Clones must succeed (a missing node breaks the workflow), while dependency
+# installs stay non-fatal but keep their output and are summarised at the end.
+RUN set -e; \
+    for repo in \
+        https://github.com/rgthree/rgthree-comfy.git \
+        https://github.com/ltdrdata/ComfyUI-Impact-Pack.git \
+        https://github.com/yolain/ComfyUI-Easy-Use.git \
+        https://github.com/ssitu/ComfyUI_UltimateSDUpscale.git \
+        https://github.com/sipherxyz/comfyui-art-venture.git \
+        https://github.com/ltdrdata/ComfyUI-Impact-Subpack.git \
+        https://github.com/moonwhaler/comfyui-moonpack.git \
+        https://github.com/gseth/ControlAltAI-Nodes.git \
+        https://github.com/vrgamegirl19/comfyui-vrgamedevgirl.git \
+        https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler.git \
+        https://github.com/robertvoy/ComfyUI-Flux-Continuum.git \
+        https://github.com/ltdrdata/was-node-suite-comfyui.git \
+        https://github.com/ChangeTheConstants/SeedVarianceEnhancer.git \
+    ; do \
+        name=$(basename "$repo" .git); \
+        git clone "$repo" "$name"; \
+        if [ -f "$name/requirements.txt" ]; then \
+            python3.12 -m pip install --no-cache-dir -r "$name/requirements.txt" || { \
+                echo "WARNING: failed to install requirements for $name" >&2; \
+                echo "$name" >> /custom_node_install_failures.txt; \
+            }; \
+        fi; \
+    done; \
+    if [ -f /custom_node_install_failures.txt ]; then \
+        echo "WARNING: custom nodes with failed dependency installs:" >&2; \
+        cat /custom_node_install_failures.txt >&2; \
+    fi
 
 # Back to ComfyUI root
 WORKDIR /workspace/runpod-slim/ComfyUI

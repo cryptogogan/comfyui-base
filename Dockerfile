@@ -59,12 +59,21 @@ RUN python3.12 -m pip install --no-cache-dir -r requirements.txt && \
 
 # Install custom node dependencies
 WORKDIR /tmp/build/ComfyUI/custom_nodes
+# A failing optional node must not fail the build, but the failure is logged and
+# recorded in /custom_node_install_failures.txt instead of being discarded.
 RUN for node_dir in */; do \
         if [ -f "$node_dir/requirements.txt" ]; then \
             echo "Installing requirements for $node_dir"; \
-            python3.12 -m pip install --no-cache-dir -r "$node_dir/requirements.txt" || true; \
+            python3.12 -m pip install --no-cache-dir -r "$node_dir/requirements.txt" || { \
+                echo "WARNING: failed to install requirements for $node_dir" >&2; \
+                echo "$node_dir" >> /custom_node_install_failures.txt; \
+            }; \
         fi; \
-    done
+    done; \
+    if [ -f /custom_node_install_failures.txt ]; then \
+        echo "WARNING: custom nodes with failed dependency installs:" >&2; \
+        cat /custom_node_install_failures.txt >&2; \
+    fi
 
 # ============================================================================
 # Stage 2: Runtime - Clean image with pre-installed packages
