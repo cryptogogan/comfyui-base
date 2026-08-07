@@ -27,6 +27,8 @@ setup_ssh() {
     if [[ $PUBLIC_KEY ]]; then
         echo "$PUBLIC_KEY" >> ~/.ssh/authorized_keys
         chmod 700 -R ~/.ssh
+        # Key-based auth is available; disable password login to reduce attack surface
+        sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
     else
         # Generate random password if no public key
         RANDOM_PASS=$(openssl rand -base64 12)
@@ -91,7 +93,11 @@ export_env_vars() {
 # Start Jupyter Lab server for remote access
 start_jupyter() {
     mkdir -p /workspace
+    # Require a token so Jupyter (which exposes a root terminal) is never left
+    # unauthenticated. Generate a random one if JUPYTER_PASSWORD is not set.
+    JUPYTER_TOKEN="${JUPYTER_PASSWORD:-$(openssl rand -hex 24)}"
     echo "Starting Jupyter Lab on port 8888..."
+    echo "JupyterLab token: ${JUPYTER_TOKEN}"
     nohup jupyter lab \
         --allow-root \
         --no-browser \
@@ -101,7 +107,7 @@ start_jupyter() {
         --FileContentsManager.preferred_dir=/workspace \
         --ServerApp.root_dir=/workspace \
         --ServerApp.terminado_settings='{"shell_command":["/bin/bash"]}' \
-        --IdentityProvider.token="${JUPYTER_PASSWORD:-}" \
+        --IdentityProvider.token="${JUPYTER_TOKEN}" \
         --ServerApp.allow_origin=* &> /jupyter.log &
     echo "Jupyter Lab started"
 }
@@ -122,7 +128,11 @@ if [ ! -f "$DB_FILE" ]; then
     filebrowser config set --port 8080
     filebrowser config set --root /workspace
     filebrowser config set --auth.method=json
-    filebrowser users add admin adminadmin12 --perm.admin
+    # Do not hardcode the admin password. Use FB_PASSWORD if provided, otherwise
+    # generate a random one and print it to the logs.
+    FB_PASSWORD="${FB_PASSWORD:-$(openssl rand -base64 12)}"
+    filebrowser users add admin "$FB_PASSWORD" --perm.admin
+    echo "FileBrowser admin credentials: admin / ${FB_PASSWORD}"
 else
     echo "Using existing FileBrowser configuration..."
 fi

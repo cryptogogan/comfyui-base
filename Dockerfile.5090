@@ -182,7 +182,7 @@ RUN wget -O models/SEEDVR2/seedvr2_ema_7b_fp16.safetensors https://huggingface.c
 RUN wget -O models/upscale_models/4x-UltraSharp.pth https://openmodeldb.info/results/download/4x-UltraSharp
 
 # Workflow JSON
-RUN wget -O input/workflows/z-image-turbo-t2i-workflow-detailer-seedvr2.json "https://civitai.com/api/download/models/2174733" --content-disposition --no-check-certificate
+RUN wget -O input/workflows/z-image-turbo-t2i-workflow-detailer-seedvr2.json "https://civitai.com/api/download/models/2174733" --content-disposition
 
 # Expose ports
 EXPOSE 8188 22 8888 8080
