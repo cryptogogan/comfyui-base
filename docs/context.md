@@ -20,6 +20,7 @@ This document outlines how to work in this repository from a developer point of 
 - `start.sh` – Runtime bootstrap for regular image
 - `start.5090.sh` – Runtime bootstrap for 5090 image
 - `docker-bake.hcl` – Buildx bake targets (`regular`, `dev`, `rtx5090`)
+- `tests/` – [bats](https://github.com/bats-core/bats-core) unit tests for the start scripts
 - `README.md` – User-facing overview
 - `docs/conventions.md` – This document
 
@@ -121,6 +122,28 @@ Preinstalled custom nodes (initial set):
 - Additional system packages: modify the respective Dockerfile `apt-get install` lines.
 - Python packages: extend installation blocks in the start script after venv activation. Prefer `uv pip install --no-cache ...`.
 
+## Tests
+
+The start scripts define their behavior in functions and only run `main` when
+executed directly, so `tests/` can source them and exercise the functions in
+isolation. Every external binary (`git`, `pip`, `uv`, `filebrowser`, `jupyter`,
+`sshd`, …) is replaced with a recording stub and all paths are redirected into a
+temp directory via the `${VAR:-default}` overrides at the top of the scripts, so
+nothing touches the host.
+
+```bash
+sudo apt-get install -y bats shellcheck
+bats tests/
+shellcheck start.sh start.5090.sh
+```
+
+CI runs bats, shellcheck, and hadolint on every pull request (`.github/workflows/test.yml`).
+
+When adding behavior to a start script, add it as a function and cover it in
+`tests/start.bats`. `tests/start_5090.bats` asserts the two scripts stay in sync
+— it fails if they diverge by more than the virtualenv path and its comments, so
+changes must be applied to both.
+
 ## Dev Conventions
 
 - Keep images lean. Prefer runtime install via `uv` over baking large wheels unless required (e.g., 5090 torch wheels).
@@ -129,6 +152,7 @@ Preinstalled custom nodes (initial set):
 - When adding new env vars needed by downstream processes, ensure they are exported in `export_env_vars()` the same way as others.
 - For new custom nodes, ensure idempotent installs: the loop checks for `requirements.txt`, `install.py`, and `setup.py`.
 - Shell scripting: keep `set -e` at top; prefer explicit guards; write idempotent steps safe to re-run.
+- Keep top-level code in the start scripts limited to variable and function definitions; the `main` guard at the bottom is what makes them testable.
 
 ## Local Development Tips
 

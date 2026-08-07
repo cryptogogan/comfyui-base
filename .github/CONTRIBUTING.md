@@ -58,9 +58,23 @@ Troubleshooting:
 - Use the “Dev Build” workflow to test changes without tagging.
 - Check container logs under `/workspace/runpod-slim/*.log` if runtime issues occur.
 
+## Tests
+
+Run the unit tests and linters locally before opening a PR:
+
+```bash
+sudo apt-get install -y bats shellcheck
+bats tests/
+shellcheck start.sh start.5090.sh
+```
+
+These also run in CI on every pull request. See `docs/conventions.md` for how the
+start scripts are made testable.
+
 ## Opening PRs
 
 - Keep changes focused and include a clear rationale.
+- Add or update tests in `tests/` for start script changes.
 - Update `docs/conventions.md` if you change behavior that developers rely on.
 
 ## License
