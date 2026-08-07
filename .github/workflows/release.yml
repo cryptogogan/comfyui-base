@@ -64,8 +64,13 @@ jobs:
             echo "IS_MANUAL_RELEASE=false" >> $GITHUB_ENV
           fi
 
-          # Export TAG for docker-bake.hcl variable override
-          echo "TAG=${RELEASE_VERSION}" >> $GITHUB_ENV
+          # Export TAG for docker-bake.hcl variable override. RELEASE_VERSION is
+          # only readable in later steps, so use the local VERSION here.
+          if [[ -z "${VERSION}" ]]; then
+            echo "::error::could not determine release version for event ${{ github.event_name }}"
+            exit 1
+          fi
+          echo "TAG=${VERSION}" >> $GITHUB_ENV
 
       - name: Build and push 5090 image
         uses: docker/bake-action@v5
